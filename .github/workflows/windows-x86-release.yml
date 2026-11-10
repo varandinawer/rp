@@ -1,0 +1,113 @@
+name: Windows x86 release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*-win32"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-x86:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Configure Win32 release
+        run: >-
+          cmake -S src -B buildx86
+          -G "Visual Studio 17 2022"
+          -A Win32
+
+      - name: Build Win32 release
+        run: cmake --build buildx86 --config Release --parallel
+
+      - name: Stage and verify artifact
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '-win32$', ''
+          if ("${{ github.ref_type }}" -ne "tag" -or $version -eq "") {
+            $version = "development"
+          }
+
+          $source = "buildx86/Release/rp-win.exe"
+          $artifact = "release/rp-win-x86-$version.exe"
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          Copy-Item -LiteralPath $source -Destination $artifact
+
+          $bytes = [System.IO.File]::ReadAllBytes($artifact)
+          if ($bytes.Length -lt 0x40) {
+            throw "Artifact is too small to contain a valid PE header."
+          }
+
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($peOffset -lt 0 -or ($peOffset + 6) -gt $bytes.Length) {
+            throw "Invalid PE header offset."
+          }
+
+          $signature = [Text.Encoding]::ASCII.GetString($bytes, $peOffset, 4)
+          if ($signature -ne "PE`0`0") {
+            throw "Invalid PE signature."
+          }
+
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x014c) {
+            throw ("Expected IMAGE_FILE_MACHINE_I386 (0x014c), got 0x{0:x4}." -f $machine)
+          }
+
+          $output = & $artifact -f $artifact --version --info 1 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            throw "rp++ smoke test failed: $output"
+          }
+          if (($output -join "`n") -notmatch '2\.1\.5 x86') {
+            throw "rp++ did not report the expected 2.1.5 x86 build: $output"
+          }
+
+          $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksum = "$artifact.sha256"
+          [System.IO.File]::WriteAllText($checksum, "$hash  $(Split-Path -Leaf $artifact)`n")
+
+          "ARTIFACT=$artifact" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CHECKSUM=$checksum" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rp-win-x86-${{ env.VERSION }}
+          path: |
+            ${{ env.ARTIFACT }}
+            ${{ env.CHECKSUM }}
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          @"
+          Windows x86 build of rp++ $env:VERSION.
+
+          - PE machine: IMAGE_FILE_MACHINE_I386 (0x014c)
+          - Upstream source version: v2.1.5
+          - Source commit: $env:GITHUB_SHA
+          - SHA-256: attached as a separate checksum file
+          - Build method: Visual Studio 2022 CMake generator with -A Win32
+
+          Historical Win32 instructions:
+          https://github.com/0vercl0k/rp/issues/50#issuecomment-1373025834
+          "@ | Set-Content -LiteralPath release-notes.md -Encoding utf8
+
+          gh release create "${{ github.ref_name }}" `
+            "$env:ARTIFACT" `
+            "$env:CHECKSUM" `
+            --title "rp++ $env:VERSION Windows x86" `
+            --notes-file release-notes.md

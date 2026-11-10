@@ -38,6 +38,9 @@ You can also use the `--va` option to specify your own base address.
 
 ## Build
 
+An explicit Windows x86 build and release workflow is documented in
+[WINDOWS_X86_BUILD.md](WINDOWS_X86_BUILD.md).
+
 You can find shell scripts in [src/build](src/build) for every supported platforms; below is the Linux example:
 
 ```
