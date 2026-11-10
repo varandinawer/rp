@@ -11,14 +11,13 @@ permissions:
 
 jobs:
   build-windows-x86:
-    runs-on: windows-latest
+    # windows-latest uses Visual Studio 2026. Pin the image that contains the
+    # Visual Studio 2022 generator used by the documented Win32 build.
+    runs-on: windows-2022
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+        uses: actions/checkout@v6
 
       - name: Configure Win32 release
         run: >-
@@ -79,7 +78,7 @@ jobs:
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rp-win-x86-${{ env.VERSION }}
           path: |

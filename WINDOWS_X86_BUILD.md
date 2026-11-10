@@ -26,6 +26,8 @@ buildx86\Release\rp-win.exe
 The script configures CMake with the Visual Studio 2022 generator and
 `-A Win32`. The GitHub Actions release workflow also reads the PE header and
 fails unless its machine type is `0x014c` (`IMAGE_FILE_MACHINE_I386`).
+The workflow pins GitHub's `windows-2022` image because `windows-latest` now
+uses Visual Studio 2026 and no longer provides the Visual Studio 2022 generator.
 The Release configuration uses the project's static MSVC runtime setting, so
 the published executable does not require a separate Visual C++ runtime DLL.
 
